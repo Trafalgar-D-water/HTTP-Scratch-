@@ -1,3 +1,4 @@
+// this is the file which give me error Index getting negative
 const net = require("net");
 
 // A dynamic-sized buffer
@@ -86,35 +87,20 @@ function soWrite(conn, data) {
 //Append data to new dynmaic buff
 function bufPush(buf, data) {
   const newLen = buf.length + data.length;
+  if (buf.data.length < newLen) {
+    let cap = Math.max(buf.data.length, 32);
 
-  console.log("New Length:", newLen);
-  console.log("Buffer Length:", buf.data.length);
-  if (newLen < 0) {
-    // Recreate the buffer if the new length is negative
-    const cap = Math.max(-newLen, 32); // Ensure the capacity is at least 32
-    const grown = Buffer.alloc(cap);
-    data.copy(grown, 0, 0);
-    buf.data = grown;
-    buf.length = data.length; // Update the buffer length
-  } else {
-    if (buf.data.length < newLen) {
-      let cap = Math.max(buf.data.length, 32);
-      console.log("Capacity:", cap);
-
-      while (cap < newLen) {
-        cap *= 2;
-      }
-
-      const grown = Buffer.alloc(cap);
-      buf.data.copy(grown, 0, 0);
-      buf.data = grown;
+    while (cap < newLen) {
+      cap *= 2;
     }
-    console.log("Updated Buffer Length:", buf.data.length);
-    console.log("Data Length:", data.length);
-    console.log("Updated Length:", buf.length);
-    data.copy(buf.data, buf.length, 0);
-    buf.length = newLen; // Update the buffer length
+
+    const grown = Buffer.alloc(cap);
+    buf.data.copy(grown, 0, 0);
+    buf.data = grown;
   }
+
+  data.copy(buf.data, buf.length, 0);
+  buf.length = newLen;
 }
 
 //Remove data from the front of the dynamic buffer
@@ -127,13 +113,11 @@ function bufPop(buf, len) {
 function cutMessage(buf) {
   const idx = buf.data.indexOf("\n");
   if (idx < 0) {
-    return [null, buf]; // Not complete
+    return null; // Not complete
   }
   const msg = Buffer.from(buf.data.subarray(0, idx + 1));
-  const remainingBytes = buf.data.subarray(idx + 1);
   bufPop(buf, idx + 1);
-
-  return [msg, remainingBytes];
+  return msg;
 }
 async function newConn(socket) {
   console.log(
@@ -153,7 +137,7 @@ async function serveClient(socket) {
   const conn = soInit(socket);
   const buf = new DynBuf();
   while (true) {
-    const [msg, remainingBytes] = cutMessage(buf);
+    const msg = cutMessage(buf);
     if (!msg) {
       const data = await soRead(conn);
       bufPush(buf, data);
@@ -164,19 +148,14 @@ async function serveClient(socket) {
     }
 
     // Process the message and send the response
-    console.log("Received message:", msg.toString());
-    if (msg.toString().trim() === "quit") {
-        console.log("Quit command received. Closing connection.");
-        await soWrite(conn, Buffer.from("Bye.\n"));
-        socket.end();
-        return;
+    if (msg.equals(Buffer.from("quit\n"))) {
+      await soWrite(conn, Buffer.from("Bye.\n"));
+      socket.destroy();
+      return;
     } else {
-        console.log("Echoing message:", msg.toString());
-        const reply = Buffer.concat([Buffer.from("Echo: "), msg]);
-        await soWrite(conn, reply);
+      const reply = Buffer.concat([Buffer.from("Echo: "), msg]);
+      await soWrite(conn, reply);
     }
-    buf.data = remainingBytes;
-    buf.length = remainingBytes.length;
   }
 }
 let server = net.createServer({ pauseOnConnect: true });

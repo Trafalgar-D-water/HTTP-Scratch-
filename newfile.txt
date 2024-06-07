@@ -1,0 +1,12 @@
+line 153
+while(true){
+        const data = await soRead(conn);
+        if(data.length === 0){
+            console.log('end connection');
+            break;
+        }
+
+
+        console.log('data' , data);
+        await soWrite(conn , data);
+    }
